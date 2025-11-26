@@ -1,0 +1,892 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 0;
+      background: #ffffff;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      flex: 1;
+    }
+    
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid #000000;
+      background: #ffffff;
+    }
+    
+    .tab {
+      padding: 12px 24px;
+      background: #ffffff;
+      border: 1px solid #000000;
+      border-bottom: none;
+      font-size: 14px;
+      font-weight: 500;
+      color: #000000;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+    
+    .tab:first-child {
+      border-right: none;
+    }
+    
+    .tab.active {
+      background: #e5e5e5;
+      border-bottom: 1px solid #e5e5e5;
+      margin-bottom: -1px;
+    }
+    
+    .tab:not(.active) {
+      background: #ffffff;
+    }
+    
+    .tab-content {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
+      padding: 16px;
+      overflow: hidden;
+    }
+    
+    .tab-content.active {
+      display: flex;
+    }
+    
+    /* Chat Tab Styles */
+    .chat-container {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      gap: 12px;
+    }
+    
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      background: #ffffff;
+      border: 1px solid #000000;
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-height: 0;
+    }
+    
+    .chat-message {
+      padding: 10px 12px;
+      border-radius: 6px;
+      max-width: 85%;
+      word-wrap: break-word;
+      font-size: 13px;
+      line-height: 1.6;
+      align-self: flex-start;
+    }
+    
+    .chat-message.user {
+      background: #e5e5e5;
+      color: #000000;
+    }
+    
+    .chat-message.assistant {
+      background: #ff6b35;
+      color: #ffffff;
+    }
+    
+    .chat-message.loading {
+      background: #f0f0f0;
+      color: #666666;
+      font-style: italic;
+    }
+    
+    .chat-message strong {
+      font-weight: 600;
+    }
+    
+    .chat-message em {
+      font-style: italic;
+    }
+    
+    .chat-message code {
+      background: rgba(0, 0, 0, 0.1);
+      padding: 2px 4px;
+      border-radius: 3px;
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+      font-size: 12px;
+    }
+    
+    .chat-message.assistant code {
+      background: rgba(255, 255, 255, 0.2);
+    }
+    
+    .chat-message ul,
+    .chat-message ol {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+    
+    .chat-message li {
+      margin: 4px 0;
+    }
+    
+    .chat-message p {
+      margin: 8px 0;
+    }
+    
+    .chat-message p:first-child {
+      margin-top: 0;
+    }
+    
+    .chat-message p:last-child {
+      margin-bottom: 0;
+    }
+    
+    .chat-input-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .chat-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    
+    .update-context-button {
+      padding: 8px 16px;
+      background: #ffffff;
+      color: #000000;
+      border: 1px solid #000000;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+    
+    .update-context-button:hover {
+      background: #f5f5f5;
+    }
+    
+    .update-context-button:disabled {
+      background: #e5e5e5;
+      color: #999999;
+      cursor: not-allowed;
+      border-color: #e5e5e5;
+    }
+    
+    .chat-input-row {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .chat-input {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid #000000;
+      border-radius: 6px;
+      font-size: 14px;
+      font-family: inherit;
+      resize: none;
+      min-height: 60px;
+      max-height: 120px;
+    }
+    
+    .chat-input:focus {
+      outline: none;
+      border-color: #ff6b35;
+    }
+    
+    .chat-send-button {
+      padding: 10px 24px;
+      background: #ff6b35;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    
+    .chat-send-button:hover {
+      background: #e55a2b;
+    }
+    
+    .chat-send-button:disabled {
+      background: #e5e5e5;
+      color: #999999;
+      cursor: not-allowed;
+    }
+    
+    /* Raw Text Tab Styles */
+    .raw-text-container {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      gap: 12px;
+    }
+    
+    .raw-text-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      border: 1px solid #000000;
+      border-radius: 6px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      background: #ffffff;
+      color: #000000;
+      min-height: 0;
+    }
+    
+    .copy-button {
+      padding: 12px 24px;
+      background: #ff6b35;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      width: 100%;
+    }
+    
+    .copy-button:hover {
+      background: #e55a2b;
+    }
+    
+    .copy-button:disabled {
+      background: #e5e5e5;
+      color: #999999;
+      cursor: not-allowed;
+    }
+    
+    .format-toggle {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .format-toggle-button {
+      flex: 1;
+      padding: 8px 16px;
+      background: #ffffff;
+      color: #000000;
+      border: 1px solid #000000;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .format-toggle-button.active {
+      background: #000000;
+      color: #ffffff;
+    }
+    
+    .format-toggle-button:hover:not(.active) {
+      background: #f5f5f5;
+    }
+    
+    /* System Tab Styles */
+    .system-container {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      gap: 12px;
+    }
+    
+    .system-prompt-input {
+      flex: 1;
+      padding: 12px;
+      border: 1px solid #000000;
+      border-radius: 6px;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+      resize: none;
+      background: #ffffff;
+      color: #000000;
+      min-height: 0;
+    }
+    
+    .system-prompt-input:focus {
+      outline: none;
+      border-color: #ff6b35;
+    }
+    
+    .save-prompt-button {
+      padding: 12px 24px;
+      background: #ff6b35;
+      color: #000000;
+      border: 1px solid #000000;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      width: 100%;
+    }
+    
+    .save-prompt-button:hover {
+      background: #e55a2b;
+    }
+    
+    .error {
+      padding: 12px;
+      background: #ffe5e5;
+      border: 1px solid #ffcccc;
+      border-radius: 6px;
+      color: #cc0000;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    
+    .info {
+      padding: 12px;
+      background: #e5f4ff;
+      border: 1px solid #b3e0ff;
+      border-radius: 6px;
+      color: #0066cc;
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    
+    .progress {
+      padding: 12px;
+      background: #fff3e0;
+      border: 1px solid #ffb74d;
+      border-radius: 6px;
+      color: #e65100;
+      font-size: 13px;
+      margin-bottom: 12px;
+      display: block;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    
+    .progress.active {
+      opacity: 1;
+    }
+    
+    .progress-message {
+      margin-bottom: 8px;
+    }
+    
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      background: #ffe0b2;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    
+    .progress-bar-fill {
+      height: 100%;
+      background: #ff6b35;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="tabs">
+      <button class="tab active" data-tab="chat">Chat</button>
+      <button class="tab" data-tab="raw-text">Raw Text</button>
+      <button class="tab" data-tab="system">System</button>
+    </div>
+    
+    <div id="chat-tab" class="tab-content active">
+      <div class="chat-container">
+        <div id="progress-indicator" class="progress active">
+          <div id="progress-message" class="progress-message">Initializing...</div>
+          <div class="progress-bar">
+            <div id="progress-bar-fill" class="progress-bar-fill"></div>
+          </div>
+        </div>
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-message assistant">
+            Hello! I can help you analyze your Figma Slides deck. Ask me anything about your slides.
+          </div>
+        </div>
+        <div class="chat-input-container">
+          <div class="chat-controls">
+            <button id="update-context-button" class="update-context-button">Update Context</button>
+          </div>
+          <div class="chat-input-row">
+            <textarea id="chat-input" class="chat-input" placeholder="Enter your prompt here..." rows="2"></textarea>
+            <button id="chat-send-button" class="chat-send-button">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div id="raw-text-tab" class="tab-content">
+      <div class="raw-text-container">
+        <div class="raw-text-content" id="raw-text-content">Extract slides to see content here...</div>
+        <button id="copy-button" class="copy-button" disabled>Copy</button>
+        <div class="format-toggle">
+          <button class="format-toggle-button active" data-format="text">Text</button>
+          <button class="format-toggle-button" data-format="json">JSON</button>
+        </div>
+      </div>
+    </div>
+    
+    <div id="system-tab" class="tab-content">
+      <div class="system-container">
+        <textarea id="system-prompt-input" class="system-prompt-input" placeholder="Enter your prompt here..."></textarea>
+        <button id="save-prompt-button" class="save-prompt-button">Save</button>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    const chatMessages = document.getElementById('chat-messages');
+    const chatInput = document.getElementById('chat-input');
+    const chatSendButton = document.getElementById('chat-send-button');
+    const updateContextButton = document.getElementById('update-context-button');
+    const rawTextContent = document.getElementById('raw-text-content');
+    const copyButton = document.getElementById('copy-button');
+    const formatToggleButtons = document.querySelectorAll('.format-toggle-button');
+    const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    const systemPromptInput = document.getElementById('system-prompt-input');
+    const savePromptButton = document.getElementById('save-prompt-button');
+    
+    // TODO: Set your OpenAI API key here or configure it via environment variable
+    const API_KEY = ''; // Add your OpenAI API key here
+    const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant analyzing a Figma Slides deck. The user will provide the deck content followed by their question.';
+    
+    let currentData = null;
+    let formattedText = '';
+    let currentFormat = 'text';
+    let conversationHistory = [];
+    let customSystemPrompt = null;
+    
+    // Request system prompt from plugin on load
+    parent.postMessage({ pluginMessage: { type: 'load-system-prompt' } }, '*');
+    
+    // Save system prompt
+    savePromptButton.addEventListener('click', () => {
+      const prompt = systemPromptInput.value.trim();
+      if (prompt) {
+        customSystemPrompt = prompt;
+        // Send to plugin to save
+        parent.postMessage({ pluginMessage: { type: 'save-system-prompt', prompt: prompt } }, '*');
+        savePromptButton.textContent = 'Saving...';
+        savePromptButton.disabled = true;
+      }
+    });
+    
+    // Tab switching
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const targetTab = tab.getAttribute('data-tab');
+        
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        
+        tabContents.forEach(content => {
+          content.classList.remove('active');
+        });
+        document.getElementById(`${targetTab}-tab`).classList.add('active');
+      });
+    });
+    
+    // Format toggle
+    formatToggleButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        formatToggleButtons.forEach(b => b.classList.remove('active'));
+        button.classList.add('active');
+        currentFormat = button.getAttribute('data-format');
+        updateRawTextContent();
+      });
+    });
+    
+    // Format JSON with proper indentation
+    function formatJSON(data) {
+      return JSON.stringify(data, null, 2);
+    }
+    
+    // Format data as requested: Section #, Slide #, Text (with \n as line breaks)
+    function formatAsText(data) {
+      if (!data || data.length === 0) {
+        return '';
+      }
+      
+      let result = '';
+      let currentSection = null;
+      
+      for (const slide of data) {
+        if (currentSection !== slide.sectionNumber) {
+          if (currentSection !== null) {
+            result += '\n';
+          }
+          result += `Section ${slide.sectionNumber}\n\n`;
+          currentSection = slide.sectionNumber;
+        }
+        
+        result += `Slide ${slide.slideNumber} (Overall Slide ${slide.overallSlideNumber})\n`;
+        
+        if (slide.textContent && slide.textContent.length > 0) {
+          for (const text of slide.textContent) {
+            const formattedText = text.replace(/\\n/g, '\n');
+            result += formattedText + '\n';
+          }
+        }
+        
+        result += '\n';
+      }
+      
+      return result.trim();
+    }
+    
+    function updateRawTextContent() {
+      if (!currentData) {
+        rawTextContent.textContent = 'Extract slides to see content here...';
+        copyButton.disabled = true;
+        return;
+      }
+      
+      if (currentFormat === 'text') {
+        rawTextContent.textContent = formattedText;
+      } else {
+        rawTextContent.textContent = formatJSON(currentData);
+      }
+      copyButton.disabled = false;
+    }
+    
+    // Copy to clipboard
+    copyButton.addEventListener('click', () => {
+      const text = rawTextContent.textContent;
+      if (text && text !== 'Extract slides to see content here...') {
+        navigator.clipboard.writeText(text).then(() => {
+          const originalText = copyButton.textContent;
+          copyButton.textContent = 'Copied!';
+          setTimeout(() => {
+            copyButton.textContent = originalText;
+          }, 2000);
+        }).catch(err => {
+          console.error('Failed to copy:', err);
+          alert('Failed to copy to clipboard');
+        });
+      }
+    });
+    
+    // Convert markdown-like text to HTML
+    function formatChatMessage(text) {
+      if (!text) return '';
+      
+      // Escape HTML first to prevent XSS
+      let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      
+      // Convert line breaks
+      html = html.replace(/\n/g, '<br>');
+      
+      // Convert code blocks (```code```)
+      html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+      
+      // Convert inline code (`code`)
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+      
+      // Convert bold (**text** or __text__)
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+      
+      // Convert italic (*text* or _text_) - but not if it's part of bold
+      html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+      html = html.replace(/(?<!_)_([^_]+)_(?!_)/g, '<em>$1</em>');
+      
+      // Convert unordered lists (- item or * item)
+      html = html.replace(/^[\s]*[-*]\s+(.+)$/gm, '<li>$1</li>');
+      html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+      
+      // Convert ordered lists (1. item)
+      html = html.replace(/^[\s]*\d+\.\s+(.+)$/gm, '<li>$1</li>');
+      // Wrap consecutive <li> tags in <ol>
+      html = html.replace(/(<li>.*?<\/li>(?:\s*<li>.*?<\/li>)*)/gs, (match) => {
+        if (!match.includes('<ul>')) {
+          return '<ol>' + match + '</ol>';
+        }
+        return match;
+      });
+      
+      // Wrap paragraphs (text blocks separated by double line breaks)
+      html = html.split('<br><br>').map(block => {
+        block = block.trim();
+        if (block && !block.startsWith('<') && !block.startsWith('<ul') && !block.startsWith('<ol')) {
+          return '<p>' + block + '</p>';
+        }
+        return block;
+      }).join('<br><br>');
+      
+      return html;
+    }
+    
+    // Chat functionality
+    function addChatMessage(content, role) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `chat-message ${role}`;
+      messageDiv.innerHTML = formatChatMessage(content);
+      chatMessages.appendChild(messageDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    
+    function addLoadingMessage() {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'chat-message loading';
+      messageDiv.id = 'loading-message';
+      messageDiv.textContent = 'Thinking...';
+      chatMessages.appendChild(messageDiv);
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+      return messageDiv;
+    }
+    
+    function removeLoadingMessage() {
+      const loadingMsg = document.getElementById('loading-message');
+      if (loadingMsg) {
+        loadingMsg.remove();
+      }
+    }
+    
+    async function sendChatMessage() {
+      const userMessage = chatInput.value.trim();
+      if (!userMessage) return;
+      
+      if (!formattedText) {
+        alert('No slide data available. Please extract slides first.');
+        return;
+      }
+      
+      chatInput.disabled = true;
+      chatSendButton.disabled = true;
+      
+      addChatMessage(userMessage, 'user');
+      chatInput.value = '';
+      
+      const loadingMsg = addLoadingMessage();
+      
+      try {
+        const systemPrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
+        
+        // Build messages array with conversation history
+        const messages = [
+          { role: 'system', content: systemPrompt }
+        ];
+        
+        // If this is the first message, include the deck text
+        if (conversationHistory.length === 0) {
+          messages.push({
+            role: 'user',
+            content: `Here is the content of a Figma Slides deck:\n\n${formattedText}\n\n---\n\nUser question: ${userMessage}`
+          });
+        } else {
+          // For subsequent messages, add conversation history
+          messages.push(...conversationHistory);
+          // Then add the current user message
+          messages.push({
+            role: 'user',
+            content: userMessage
+          });
+        }
+        
+        const requestPayload = {
+          model: 'gpt-5.1',
+          messages: messages,
+          temperature: 0.7,
+          max_completion_tokens: 1000
+        };
+        
+        // Log the complete message payload to console
+        console.log('LLM Request:', JSON.stringify(requestPayload, null, 2));
+        
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${API_KEY}`
+          },
+          body: JSON.stringify(requestPayload)
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: { message: 'Unknown error' } }));
+          throw new Error(errorData.error?.message || `API error: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const assistantMessage = data.choices[0]?.message?.content || 'No response received';
+        
+        // Add messages to conversation history
+        conversationHistory.push({ role: 'user', content: userMessage });
+        conversationHistory.push({ role: 'assistant', content: assistantMessage });
+        
+        removeLoadingMessage();
+        addChatMessage(assistantMessage, 'assistant');
+        
+      } catch (error) {
+        removeLoadingMessage();
+        addChatMessage(`Error: ${error.message}`, 'assistant');
+        console.error('Chat error:', error);
+      } finally {
+        chatInput.disabled = false;
+        chatSendButton.disabled = false;
+        chatInput.focus();
+      }
+    }
+    
+    // Update context button handler
+    updateContextButton.addEventListener('click', () => {
+      updateContextButton.disabled = true;
+      updateContextButton.textContent = 'Updating...';
+      
+      // Send message to plugin to re-extract slides
+      parent.postMessage({ pluginMessage: { type: 'update-context' } }, '*');
+    });
+    
+    // Chat event listeners
+    chatSendButton.addEventListener('click', sendChatMessage);
+    
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    });
+    
+    // Handle messages from plugin
+    window.onmessage = (event) => {
+      const message = event.data.pluginMessage;
+      
+      if (!message) {
+        console.warn('Received message without pluginMessage:', event.data);
+        return;
+      }
+      
+      console.log('Received message type:', message.type);
+      
+      if (message.type === 'progress') {
+        console.log('Progress update:', message);
+        // Show progress indicator
+        const progressIndicator = document.getElementById('progress-indicator');
+        const progressMessage = document.getElementById('progress-message');
+        const progressBarFill = document.getElementById('progress-bar-fill');
+        
+        if (progressIndicator && progressMessage && progressBarFill) {
+          progressIndicator.classList.add('active');
+          progressMessage.textContent = message.message || 'Processing...';
+          
+          if (message.total > 0) {
+            const percentage = Math.min(100, (message.current / message.total) * 100);
+            progressBarFill.style.width = `${percentage}%`;
+          } else {
+            progressBarFill.style.width = '0%';
+          }
+        } else {
+          console.error('Progress indicator elements not found:', {
+            progressIndicator: !!progressIndicator,
+            progressMessage: !!progressMessage,
+            progressBarFill: !!progressBarFill
+          });
+        }
+        
+        // Disable update button during processing
+        updateContextButton.disabled = true;
+        updateContextButton.textContent = 'Processing...';
+      } else if (message.type === 'data') {
+        console.log('Data received:', message.data?.length, 'slides');
+        // Hide progress indicator
+        const progressIndicator = document.getElementById('progress-indicator');
+        if (progressIndicator) {
+          progressIndicator.classList.remove('active');
+        }
+        
+        // Clear chat history and conversation history
+        chatMessages.innerHTML = '';
+        conversationHistory = [];
+        addChatMessage('fresh start...', 'assistant');
+        
+        // Update data
+        currentData = message.data;
+        formattedText = formatAsText(message.data);
+        updateRawTextContent();
+        
+        // Update system prompt if provided
+        if (message.systemPrompt) {
+          customSystemPrompt = message.systemPrompt;
+          systemPromptInput.value = message.systemPrompt;
+        }
+        
+        // Re-enable update button
+        updateContextButton.disabled = false;
+        updateContextButton.textContent = 'Update Context';
+      } else if (message.type === 'error') {
+        // Hide progress indicator on error
+        const progressIndicator = document.getElementById('progress-indicator');
+        if (progressIndicator) {
+          progressIndicator.classList.remove('active');
+        }
+        rawTextContent.textContent = `Error: ${message.message}`;
+        copyButton.disabled = true;
+        
+        // Re-enable update button on error
+        updateContextButton.disabled = false;
+        updateContextButton.textContent = 'Update Context';
+      } else if (message.type === 'system-prompt-loaded') {
+        // Load system prompt
+        if (message.prompt) {
+          customSystemPrompt = message.prompt;
+          systemPromptInput.value = message.prompt;
+        } else {
+          systemPromptInput.value = DEFAULT_SYSTEM_PROMPT;
+        }
+      } else if (message.type === 'system-prompt-saved') {
+        // Handle save confirmation
+        if (message.success) {
+          savePromptButton.textContent = 'Saved!';
+          setTimeout(() => {
+            savePromptButton.textContent = 'Save';
+            savePromptButton.disabled = false;
+          }, 2000);
+        } else {
+          savePromptButton.textContent = 'Error';
+          savePromptButton.disabled = false;
+          setTimeout(() => {
+            savePromptButton.textContent = 'Save';
+          }, 2000);
+        }
+      }
+    };
+  </script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "figma-slides-text-extractor",
+  "version": "1.0.0",
+  "description": "Extract all text from Figma Slides deck as JSON",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.88.0",
+    "typescript": "^5.0.0"
+  }
+}
+
