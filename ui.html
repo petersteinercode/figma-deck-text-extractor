@@ -535,7 +535,7 @@
       return JSON.stringify(data, null, 2);
     }
     
-    // Format data as requested: Section #, Slide #, Text (with \n as line breaks)
+    // Format data as requested: Section #, Slide #, Text with markdown formatting
     function formatAsText(data) {
       if (!data || data.length === 0) {
         return '';
@@ -555,7 +555,15 @@
         
         result += `Slide ${slide.slideNumber} (Overall Slide ${slide.overallSlideNumber})\n`;
         
-        if (slide.textContent && slide.textContent.length > 0) {
+        // Use formattedContent with markdown if available, otherwise fall back to textContent
+        if (slide.formattedContent && slide.formattedContent.length > 0) {
+          for (const item of slide.formattedContent) {
+            // Use markdown formatted text
+            const formattedText = item.markdown.replace(/\\n/g, '\n');
+            result += formattedText + '\n';
+          }
+        } else if (slide.textContent && slide.textContent.length > 0) {
+          // Fallback to plain text if formattedContent not available
           for (const text of slide.textContent) {
             const formattedText = text.replace(/\\n/g, '\n');
             result += formattedText + '\n';
