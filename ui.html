@@ -490,6 +490,279 @@
     let conversationHistory = [];
     let customSystemPrompt = null;
     
+    // Analysis result cache
+    const analysisCache = new Map();
+    
+    // Simplified Sobel operator for edge detection
+    function sobelOperator(data, width, height, x, y) {
+      if (x === 0 || y === 0 || x >= width - 1 || y >= height - 1) return 0;
+      
+      const idx = (y * width + x) * 4;
+      const getGray = (offsetX, offsetY) => {
+        const i = ((y + offsetY) * width + (x + offsetX)) * 4;
+        return (data[i] + data[i + 1] + data[i + 2]) / 3;
+      };
+      
+      const gx = -1 * getGray(-1, -1) + 1 * getGray(1, -1) +
+                 -2 * getGray(-1, 0) + 2 * getGray(1, 0) +
+                 -1 * getGray(-1, 1) + 1 * getGray(1, 1);
+      
+      const gy = -1 * getGray(-1, -1) - 2 * getGray(0, -1) - 1 * getGray(1, -1) +
+                 1 * getGray(-1, 1) + 2 * getGray(0, 1) + 1 * getGray(1, 1);
+      
+      return Math.sqrt(gx * gx + gy * gy);
+    }
+    
+    // Analyze slide content using Canvas API
+    function analyzeSlideContent(imageData, width, height) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0);
+          const pixelData = ctx.getImageData(0, 0, width, height);
+          const data = pixelData.data;
+          
+          // Grid size: 8x8 for speed
+          const gridSize = 8;
+          const blockWidth = Math.floor(width / gridSize);
+          const blockHeight = Math.floor(height / gridSize);
+          
+          const regions = [];
+          const verticalDensity = new Array(width).fill(0);
+          
+          // Analyze each grid block
+          for (let gy = 0; gy < gridSize; gy++) {
+            for (let gx = 0; gx < gridSize; gx++) {
+              const blockX = gx * blockWidth;
+              const blockY = gy * blockHeight;
+              const blockEndX = Math.min(blockX + blockWidth, width);
+              const blockEndY = Math.min(blockY + blockHeight, height);
+              
+              let edgeSum = 0;
+              let edgeCount = 0;
+              let horizontalEdgeCount = 0;
+              const colors = new Set();
+              let colorSum = { r: 0, g: 0, b: 0 };
+              let colorCount = 0;
+              
+              // Analyze pixels in block
+              for (let y = blockY; y < blockEndY; y++) {
+                for (let x = blockX; x < blockEndX; x++) {
+                  const edge = sobelOperator(data, width, height, x, y);
+                  edgeSum += edge;
+                  if (edge > 30) {
+                    edgeCount++;
+                    // Check if edge is primarily horizontal
+                    const idx = (y * width + x) * 4;
+                    if (x > 0 && x < width - 1) {
+                      const left = (data[idx - 4] + data[idx - 3] + data[idx - 2]) / 3;
+                      const right = (data[idx + 4] + data[idx + 3] + data[idx + 2]) / 3;
+                      if (Math.abs(left - right) > 20) {
+                        horizontalEdgeCount++;
+                      }
+                    }
+                  }
+                  
+                  const idx = (y * width + x) * 4;
+                  const r = data[idx];
+                  const g = data[idx + 1];
+                  const b = data[idx + 2];
+                  const colorKey = `${Math.floor(r/10)}_${Math.floor(g/10)}_${Math.floor(b/10)}`;
+                  colors.add(colorKey);
+                  colorSum.r += r;
+                  colorSum.g += g;
+                  colorSum.b += b;
+                  colorCount++;
+                  
+                  // Add to vertical density
+                  verticalDensity[x] += edge;
+                }
+              }
+              
+              const avgEdge = edgeSum / ((blockEndX - blockX) * (blockEndY - blockY));
+              const edgeDensity = edgeCount / ((blockEndX - blockX) * (blockEndY - blockY));
+              const horizontalRatio = edgeCount > 0 ? horizontalEdgeCount / edgeCount : 0;
+              
+              // Calculate color variance
+              const avgR = colorSum.r / colorCount;
+              const avgG = colorSum.g / colorCount;
+              const avgB = colorSum.b / colorCount;
+              let variance = 0;
+              for (let y = blockY; y < blockEndY; y++) {
+                for (let x = blockX; x < blockEndX; x++) {
+                  const idx = (y * width + x) * 4;
+                  const r = data[idx] - avgR;
+                  const g = data[idx + 1] - avgG;
+                  const b = data[idx + 2] - avgB;
+                  variance += r * r + g * g + b * b;
+                }
+              }
+              variance = Math.sqrt(variance / colorCount);
+              
+              // Classify block: text has high edge density, low color variance, horizontal alignment
+              const isText = edgeDensity > 0.1 && variance < 60 && horizontalRatio > 0.3;
+              
+              regions.push({
+                x: blockX,
+                y: blockY,
+                width: blockEndX - blockX,
+                height: blockEndY - blockY,
+                type: isText ? 'text' : 'image',
+                confidence: isText ? Math.min(1, edgeDensity * 2) : Math.min(1, (1 - variance / 100) * 0.5)
+              });
+            }
+          }
+          
+          // Column detection: analyze vertical density histogram
+          const minColumnWidth = width * 0.15; // Minimum 15% of width
+          const smoothedDensity = new Array(width).fill(0);
+          const smoothingWindow = Math.floor(width * 0.02); // 2% smoothing
+          
+          // Smooth the density
+          for (let x = 0; x < width; x++) {
+            let sum = 0;
+            let count = 0;
+            for (let dx = -smoothingWindow; dx <= smoothingWindow; dx++) {
+              const idx = x + dx;
+              if (idx >= 0 && idx < width) {
+                sum += verticalDensity[idx];
+                count++;
+              }
+            }
+            smoothedDensity[x] = sum / count;
+          }
+          
+          // Find valleys (whitespace) and peaks (columns)
+          const avgDensity = smoothedDensity.reduce((a, b) => a + b, 0) / width;
+          const threshold = avgDensity * 0.3; // Low density = whitespace
+          
+          const whitespaceRegions = [];
+          let inWhitespace = false;
+          let whitespaceStart = 0;
+          
+          for (let x = 0; x < width; x++) {
+            if (smoothedDensity[x] < threshold) {
+              if (!inWhitespace) {
+                whitespaceStart = x;
+                inWhitespace = true;
+              }
+            } else {
+              if (inWhitespace) {
+                const whitespaceWidth = x - whitespaceStart;
+                if (whitespaceWidth > width * 0.05) { // Minimum 5% width
+                  whitespaceRegions.push({
+                    x: whitespaceStart,
+                    width: whitespaceWidth
+                  });
+                }
+                inWhitespace = false;
+              }
+            }
+          }
+          
+          if (inWhitespace) {
+            const whitespaceWidth = width - whitespaceStart;
+            if (whitespaceWidth > width * 0.05) {
+              whitespaceRegions.push({
+                x: whitespaceStart,
+                width: whitespaceWidth
+              });
+            }
+          }
+          
+          // Determine columns based on whitespace regions
+          let columnCount = 1;
+          const columns = [];
+          
+          if (whitespaceRegions.length === 0) {
+            // No whitespace = single column
+            columns.push({
+              x: 0,
+              width: width,
+              contentDensity: avgDensity
+            });
+          } else {
+            // Columns are regions between whitespace
+            let lastEnd = 0;
+            for (const ws of whitespaceRegions) {
+              if (ws.x > lastEnd) {
+                const colWidth = ws.x - lastEnd;
+                if (colWidth >= minColumnWidth) {
+                  let colDensity = 0;
+                  for (let x = lastEnd; x < ws.x; x++) {
+                    colDensity += smoothedDensity[x];
+                  }
+                  columns.push({
+                    x: lastEnd,
+                    width: colWidth,
+                    contentDensity: colDensity / colWidth
+                  });
+                }
+              }
+              lastEnd = ws.x + ws.width;
+            }
+            
+            // Add final column after last whitespace
+            if (lastEnd < width) {
+              const colWidth = width - lastEnd;
+              if (colWidth >= minColumnWidth) {
+                let colDensity = 0;
+                for (let x = lastEnd; x < width; x++) {
+                  colDensity += smoothedDensity[x];
+                }
+                columns.push({
+                  x: lastEnd,
+                  width: colWidth,
+                  contentDensity: colDensity / colWidth
+                });
+              }
+            }
+            
+            columnCount = columns.length;
+          }
+          
+          // If no valid columns found, default to 1
+          if (columns.length === 0) {
+            columns.push({
+              x: 0,
+              width: width,
+              contentDensity: avgDensity
+            });
+            columnCount = 1;
+          }
+          
+          resolve({
+            regions: regions,
+            layout: {
+              columnCount: columnCount,
+              columns: columns,
+              whitespaceRegions: whitespaceRegions
+            }
+          });
+        };
+        
+        img.onerror = () => {
+          resolve(null);
+        };
+        
+        // Convert array to Uint8Array, then to blob URL
+        const uint8Array = new Uint8Array(imageData);
+        const blob = new Blob([uint8Array], { type: 'image/png' });
+        img.src = URL.createObjectURL(blob);
+      });
+    }
+    
     // Request system prompt from plugin on load
     parent.postMessage({ pluginMessage: { type: 'load-system-prompt' } }, '*');
     
@@ -831,6 +1104,26 @@
         // Disable update button during processing
         updateContextButton.disabled = true;
         updateContextButton.textContent = 'Processing...';
+      } else if (message.type === 'analyze-slide-image') {
+        // Handle slide image analysis request
+        analyzeSlideContent(message.imageData, message.width, message.height).then((analysis) => {
+          parent.postMessage({
+            pluginMessage: {
+              type: 'slide-analysis-result',
+              slideId: message.slideId,
+              analysis: analysis
+            }
+          }, '*');
+        }).catch((error) => {
+          console.error('Analysis error:', error);
+          parent.postMessage({
+            pluginMessage: {
+              type: 'slide-analysis-result',
+              slideId: message.slideId,
+              analysis: null
+            }
+          }, '*');
+        });
       } else if (message.type === 'data') {
         console.log('Data received:', message.data?.length, 'slides');
         // Hide progress indicator

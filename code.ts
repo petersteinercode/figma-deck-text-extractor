@@ -6,12 +6,40 @@ interface TextItem {
   level: 'title' | 'heading' | 'subheading' | 'body';
 }
 
+interface ContentRegion {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  type: 'text' | 'image';
+  confidence: number;
+}
+
+interface ColumnLayout {
+  columnCount: number;
+  columns: Array<{
+    x: number;
+    width: number;
+    contentDensity: number;
+  }>;
+  whitespaceRegions: Array<{
+    x: number;
+    width: number;
+  }>;
+}
+
+interface SlideAnalysis {
+  regions: ContentRegion[];
+  layout: ColumnLayout;
+}
+
 interface SlideData {
   sectionNumber: number;
   slideNumber: number;
   overallSlideNumber: number;
   textContent: string[]; // Plain text (for backward compatibility)
   formattedContent: TextItem[]; // Text with markdown formatting
+  analysis?: SlideAnalysis; // Optional visual analysis results
 }
 
 // Recursively find all text nodes in a node tree, ignoring hidden and locked nodes
@@ -44,6 +72,38 @@ function findAllTextNodes(node: SceneNode, result: TextNode[] = []): TextNode[] 
 // Placeholder for future column detection - currently assumes 2 columns
 const NUM_COLUMNS = 2;
 
+// Export slide as PNG image, downsampled for performance
+async function exportSlideImage(slide: SceneNode): Promise<{ imageData: Uint8Array; width: number; height: number } | null> {
+  try {
+    // Get slide dimensions
+    const slideWidth = 'width' in slide ? slide.width : 1920;
+    const slideHeight = 'height' in slide ? slide.height : 1080;
+    
+    // Calculate scale factor to downsample to ~400px width
+    const targetWidth = 400;
+    const scale = Math.min(1, targetWidth / slideWidth);
+    
+    // Export slide as PNG (exportAsync is a method on SceneNode)
+    const imageData = await (slide as any).exportAsync({
+      format: 'PNG',
+      constraint: { type: 'SCALE', value: scale }
+    });
+    
+    // Calculate actual dimensions after scaling
+    const scaledWidth = Math.round(slideWidth * scale);
+    const scaledHeight = Math.round(slideHeight * scale);
+    
+    return {
+      imageData: imageData,
+      width: scaledWidth,
+      height: scaledHeight
+    };
+  } catch (error) {
+    console.error('Error exporting slide image:', error);
+    return null;
+  }
+}
+
 // Determine which column a text node belongs to based on its X position
 // Column 1: 0% to 40% of slide width
 // Column 2: 40% to 100% of slide width
@@ -74,45 +134,70 @@ function getAbsolutePosition(node: SceneNode, slide: SceneNode): { x: number; y:
   return { x, y };
 }
 
-// Sort text nodes by columns: Column 1 (top to bottom), then Column 2 (top to bottom)
-function sortTextNodesByColumns(nodes: TextNode[], slide: SceneNode, slideWidth: number): TextNode[] {
-  const COLUMN_1_BOUNDARY = slideWidth * 0.4; // 40% of width
-  
+// Sort text nodes by columns: Column 1 (top to bottom), then Column 2 (top to bottom), etc.
+function sortTextNodesByColumns(nodes: TextNode[], slide: SceneNode, slideWidth: number, analysis: SlideAnalysis | null = null): TextNode[] {
   // Create array with nodes and their absolute positions
   const nodesWithPositions = nodes.map(node => {
     const absPos = getAbsolutePosition(node, slide);
     return { node, x: absPos.x, y: absPos.y };
   });
   
+  // Determine column boundaries from analysis or use default
+  let columnBoundaries: number[] = [];
+  
+  if (analysis && analysis.layout && analysis.layout.columns.length > 0) {
+    // Use column boundaries from analysis
+    // Analysis was done on downsampled image (~400px width)
+    const targetAnalysisWidth = 400;
+    const analysisScale = Math.min(1, targetAnalysisWidth / slideWidth);
+    const analysisWidth = Math.round(slideWidth * analysisScale);
+    
+    // Calculate boundaries as the start of each column, scaled from analysis to slide space
+    columnBoundaries = [0];
+    for (const col of analysis.layout.columns) {
+      // Scale from analysis space (analysisWidth) to slide space (slideWidth)
+      const slideX = (col.x / analysisWidth) * slideWidth;
+      columnBoundaries.push(slideX);
+    }
+    // Add end boundary
+    columnBoundaries.push(slideWidth);
+    // Sort boundaries to ensure correct order
+    columnBoundaries.sort((a, b) => a - b);
+  } else {
+    // Fallback to 2-column assumption (40% boundary)
+    columnBoundaries = [0, slideWidth * 0.4, slideWidth];
+  }
+  
   // Separate nodes into columns based on their absolute X position
-  const column1: typeof nodesWithPositions = [];
-  const column2: typeof nodesWithPositions = [];
+  const columns: Array<typeof nodesWithPositions> = [];
+  for (let i = 0; i < columnBoundaries.length - 1; i++) {
+    columns.push([]);
+  }
   
   for (const item of nodesWithPositions) {
-    // Check if node's left edge (x position) is in column 1 or column 2
-    if (item.x < COLUMN_1_BOUNDARY) {
-      column1.push(item);
-    } else {
-      column2.push(item);
+    // Find which column this node belongs to
+    for (let i = 0; i < columnBoundaries.length - 1; i++) {
+      if (item.x >= columnBoundaries[i] && item.x < columnBoundaries[i + 1]) {
+        columns[i].push(item);
+        break;
+      }
     }
   }
   
   // Sort each column by Y position (top to bottom)
-  column1.sort((a, b) => a.y - b.y);
-  column2.sort((a, b) => a.y - b.y);
-  
-  // IMPORTANT: Return ALL of column 1 first, then ALL of column 2
-  // This ensures all text in Column 1 appears before any text in Column 2
-  const result: TextNode[] = [];
-  
-  // Add all column 1 nodes first (sorted top to bottom)
-  for (const item of column1) {
-    result.push(item.node);
+  for (const column of columns) {
+    column.sort((a, b) => a.y - b.y);
   }
   
-  // Then add all column 2 nodes (sorted top to bottom)
-  for (const item of column2) {
-    result.push(item.node);
+  // IMPORTANT: Return ALL of column 1 first, then ALL of column 2, etc.
+  // This ensures all text in each column appears in order
+  const result: TextNode[] = [];
+  
+  // Add all columns in order
+  for (const column of columns) {
+    for (const item of column) {
+      result.push(item.node);
+    }
   }
   
   return result;
@@ -253,17 +338,62 @@ function formatMarkdown(text: string, level: 'title' | 'heading' | 'subheading' 
   }
 }
 
+// Check if a point falls within any image region
+function isPointInImageRegion(x: number, y: number, imageRegions: ContentRegion[], slideWidth: number, slideHeight: number, analysisWidth: number, analysisHeight: number): boolean {
+  // Scale coordinates from slide space to analysis space
+  // Analysis was done on downsampled image (analysisWidth x analysisHeight)
+  // Regions are in analysis space, so we need to scale slide coordinates to analysis space
+  const scaleX = analysisWidth / slideWidth;
+  const scaleY = analysisHeight / slideHeight;
+  const scaledX = x * scaleX;
+  const scaledY = y * scaleY;
+  
+  for (const region of imageRegions) {
+    if (region.type === 'image' &&
+        scaledX >= region.x &&
+        scaledX <= region.x + region.width &&
+        scaledY >= region.y &&
+        scaledY <= region.y + region.height) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Extract text content from a slide with markdown formatting
-function extractSlideText(slide: SceneNode): { plainText: string[]; formattedText: TextItem[] } {
-  const textNodes = findAllTextNodes(slide);
+function extractSlideText(slide: SceneNode, analysis: SlideAnalysis | null = null): { plainText: string[]; formattedText: TextItem[] } {
+  let textNodes = findAllTextNodes(slide);
   
   // Get slide width to determine column boundaries
   // The slide node should have width/height properties (FrameNode, etc.)
   const slideWidth = 'width' in slide ? slide.width : 1920; // Default to 1920 if width not available
-  const COLUMN_1_BOUNDARY = slideWidth * 0.4; // 40% of width
+  const slideHeight = 'height' in slide ? slide.height : 1080; // Default to 1080 if height not available
+  
+  // Filter out text nodes that fall within image regions
+  if (analysis && analysis.regions) {
+    const imageRegions = analysis.regions.filter(r => r.type === 'image');
+    if (imageRegions.length > 0) {
+      // Analysis was done on downsampled image (~400px width)
+      // Calculate the actual analysis dimensions
+      const targetAnalysisWidth = 400;
+      const analysisScale = Math.min(1, targetAnalysisWidth / slideWidth);
+      const analysisWidth = Math.round(slideWidth * analysisScale);
+      const analysisHeight = Math.round(slideHeight * analysisScale);
+      
+      textNodes = textNodes.filter(node => {
+        const absPos = getAbsolutePosition(node, slide);
+        // Check center point of text node
+        const centerX = absPos.x + (node.width || 0) / 2;
+        const centerY = absPos.y + (node.height || 0) / 2;
+        
+        // Check if center point is in an image region
+        return !isPointInImageRegion(centerX, centerY, imageRegions, slideWidth, slideHeight, analysisWidth, analysisHeight);
+      });
+    }
+  }
   
   // Sort nodes by columns: Column 1 (top to bottom), then Column 2 (top to bottom)
-  const sortedNodes = sortTextNodesByColumns(textNodes, slide, slideWidth);
+  const sortedNodes = sortTextNodesByColumns(textNodes, slide, slideWidth, analysis);
   
   // Categorize font sizes to determine thresholds
   const thresholds = categorizeFontSizes(sortedNodes);
@@ -289,22 +419,73 @@ function extractSlideText(slide: SceneNode): { plainText: string[]; formattedTex
   
   // Debug logging (can be removed in production)
   if (textNodes.length > 0) {
-    // Count nodes in each column using absolute positions
-    let column1Count = 0;
-    let column2Count = 0;
-    for (const node of textNodes) {
-      const absPos = getAbsolutePosition(node, slide);
-      if (absPos.x < COLUMN_1_BOUNDARY) {
-        column1Count++;
-      } else {
-        column2Count++;
-      }
+    const filteredCount = textNodes.length - sortedNodes.length;
+    if (filteredCount > 0) {
+      console.log(`Filtered out ${filteredCount} text nodes in image regions`);
     }
-    console.log(`Slide text extraction: ${textNodes.length} nodes, Column 1: ${column1Count}, Column 2: ${column2Count}, Slide width: ${slideWidth}px`);
+    if (analysis && analysis.layout) {
+      console.log(`Detected ${analysis.layout.columnCount} columns from visual analysis`);
+    }
     console.log(`Font size thresholds: Title>=${thresholds.title.toFixed(1)}, Heading>=${thresholds.heading.toFixed(1)}, Subheading>=${thresholds.subheading.toFixed(1)}, Body<${thresholds.subheading.toFixed(1)}`);
   }
   
   return { plainText, formattedText: formattedItems };
+}
+
+// Request analysis for a slide and wait for result (with timeout)
+async function requestSlideAnalysis(slide: SceneNode, slideId: string): Promise<SlideAnalysis | null> {
+  // Check cache first
+  if (analysisCache.has(slideId)) {
+    return analysisCache.get(slideId)!;
+  }
+  
+  // Export slide image
+  const exportResult = await exportSlideImage(slide);
+  if (!exportResult) {
+    console.warn(`Failed to export image for slide ${slideId}`);
+    return null;
+  }
+  
+  // Send analysis request to UI
+  // Note: Uint8Array needs to be converted to regular array for message passing
+  const imageDataArray = new Array(exportResult.imageData.length);
+  for (let i = 0; i < exportResult.imageData.length; i++) {
+    imageDataArray[i] = exportResult.imageData[i];
+  }
+  
+  figma.ui.postMessage({
+    type: 'analyze-slide-image',
+    imageData: imageDataArray,
+    width: exportResult.width,
+    height: exportResult.height,
+    slideId: slideId
+  });
+  
+  // Wait for analysis result with timeout
+  return new Promise((resolve) => {
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        console.warn(`Analysis timeout for slide ${slideId}, using defaults`);
+        resolve(null);
+      }
+    }, 200); // 200ms timeout
+    
+    const checkCache = () => {
+      if (resolved) return;
+      
+      if (analysisCache.has(slideId)) {
+        resolved = true;
+        clearTimeout(timeout);
+        resolve(analysisCache.get(slideId)!);
+      } else {
+        setTimeout(checkCache, 10); // Check every 10ms
+      }
+    };
+    
+    checkCache();
+  });
 }
 
 // Process slides in batches to avoid freezing the UI
@@ -317,7 +498,7 @@ function processSlidesInBatches(
   const BATCH_SIZE = 5; // Process 5 slides at a time
   let currentIndex = 0;
   
-  function processBatch() {
+  async function processBatch() {
     const endIndex = Math.min(currentIndex + BATCH_SIZE, slideItems.length);
     
     // Process a batch of slides
@@ -325,13 +506,22 @@ function processSlidesInBatches(
       const item = slideItems[i];
       if (item && item.node) {
         try {
-          const { plainText, formattedText } = extractSlideText(item.node);
+          // Generate slide ID for caching
+          const slideId = `slide-${item.sectionNumber}-${item.slideNumber}`;
+          
+          // Request visual analysis before extracting text
+          const analysis = await requestSlideAnalysis(item.node, slideId);
+          
+          // Extract text with analysis results
+          const { plainText, formattedText } = extractSlideText(item.node, analysis);
+          
           slidesData.push({
             sectionNumber: item.sectionNumber,
             slideNumber: item.slideNumber,
             overallSlideNumber: 0, // Will be set after sorting
             textContent: plainText,
-            formattedContent: formattedText
+            formattedContent: formattedText,
+            analysis: analysis || undefined
           });
         } catch (error) {
           console.error(`Error processing slide ${item.sectionNumber}-${item.slideNumber}:`, error);
@@ -679,11 +869,21 @@ async function extractAndSendSlides() {
 // Show UI
 figma.showUI(__html__, { width: 300, height: 600, themeColors: true });
 
+// Analysis result cache
+const analysisCache = new Map<string, SlideAnalysis>();
+
 // Handle messages from UI
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'update-context') {
     // Re-extract slides when update context is requested
     await extractAndSendSlides();
+  } else if (msg.type === 'slide-analysis-result') {
+    // Store analysis result in cache
+    const slideId = (msg as any).slideId;
+    const analysis = (msg as any).analysis;
+    if (slideId && analysis) {
+      analysisCache.set(slideId, analysis);
+    }
   } else if (msg.type === 'save-system-prompt') {
     // Save system prompt to clientStorage
     try {
